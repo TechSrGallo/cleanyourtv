@@ -54,8 +54,14 @@ def run(command):
         if state["start_fails"]:
             return ("Starting: Intent { cmp=com.gathin.tvhome/.MainActivity }\n"
                     "Error: Activity not started, unable to resolve Intent\n")
+        if state["start_times_out"]:
+            return ("Starting: Intent { cmp=com.gathin.tvhome/.MainActivity }\n"
+                    "Status: timeout\nActivity: com.gathin.tvhome/.MainActivity\n")
         return ("Starting: Intent { cmp=com.gathin.tvhome/.MainActivity }\n"
                 "Status: ok\nActivity: com.gathin.tvhome/.MainActivity\n")
+    if "dumpsys activity activities" in command:
+        return ("    mResumedActivity: ActivityRecord{1 u0 com.gathin.tvhome/.MainActivity t1}\n"
+                if state["start_times_out"] else "")
     if "pm disable-user" in command:
         if state["disable_fails"]:
             return "Error: java.lang.SecurityException\n"
@@ -143,6 +149,7 @@ class HandoverTest(unittest.TestCase):
             "home": STOCK_HOME,
             "stock_disabled": False,
             "start_fails": False,
+            "start_times_out": False,
             "disable_fails": False,
             "set_home_fails": False,
             "enable_fails": False,
@@ -190,6 +197,13 @@ class HandoverTest(unittest.TestCase):
         self.assertNotIn("Installed.", result.stdout)
         self.assertFalse(any("pm disable-user" in c for c in state["commands"]))
         self.assertFalse(state["stock_disabled"])
+
+    def test_timeout_with_focused_launcher_hands_home_over(self):
+        result, state = self.handover(start_times_out=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Confirmed com.gathin.tvhome is focused", result.stdout)
+        self.assertTrue(state["stock_disabled"])
+        self.assertEqual(state["home"], NEW_HOME)
 
     def test_lost_connection_reports_incomplete_recovery(self):
         result, state = self.handover(drop_after_handover=True)

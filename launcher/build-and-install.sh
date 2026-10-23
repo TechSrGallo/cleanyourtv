@@ -105,15 +105,25 @@ case "$OUT" in
 esac
 # Start the launcher on its own, before the stock Home is touched. In the batch below a start that
 # fails only prints an "Error:" line, and the stock launcher would be disabled anyway, leaving the TV
-# with no usable Home (#239). "Status: ok" from `am start -W` means the activity really came up;
-# the HOME resolution further down only names a component, it does not prove the activity starts.
+# with no usable Home (#239). Most Android versions return "Status: ok" from `am start -W`, but some
+# Android TV 7 builds return "Status: timeout" after the activity is already visible. Confirm the
+# focused activity as a fallback; HOME resolution further down only names a component.
 START_OUT=$("$PY" -I ../tools/tv.py 'am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -n com.gathin.tvhome/.MainActivity')
 echo "$START_OUT"
 # Both halves matter: some builds answer "Status: ok" for a task that was merely brought to the
-# front, and an activity that cannot start still prints "Error: Activity not started".
-if ! printf '%s' "$START_OUT" | grep -qF 'Status: ok' || printf '%s' "$START_OUT" | grep -qi '^Error'; then
+# front, and an activity that cannot start still prints "Error: Activity not started". The focused
+# activity check also covers Sony Android TV 7, whose `am start -W` times out after a successful start.
+START_FOCUS=$("$PY" -I ../tools/tv.py 'dumpsys activity activities' 2>/dev/null |
+  grep -E 'mResumedActivity|mFocusedApp' || true)
+if printf '%s' "$START_OUT" | grep -qi '^Error' || {
+  ! printf '%s' "$START_OUT" | grep -qF 'Status: ok' &&
+  ! printf '%s' "$START_FOCUS" | grep -qF 'com.gathin.tvhome';
+}; then
   echo "ERROR: the new launcher did not start (see above); $STOCK_LAUNCHER was left enabled." >&2
   exit 1
+fi
+if ! printf '%s' "$START_OUT" | grep -qF 'Status: ok'; then
+  echo "Confirmed com.gathin.tvhome is focused despite am start reporting a timeout."
 fi
 printf '%s\n' \
   "pm grant com.gathin.tvhome android.permission.ACCESS_FINE_LOCATION 2>/dev/null; echo location-granted" \
